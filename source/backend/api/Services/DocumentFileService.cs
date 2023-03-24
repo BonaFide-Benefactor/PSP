@@ -25,7 +25,6 @@ namespace Pims.Api.Services
         private readonly IDocumentService documentService;
         private readonly IProjectRepository _projectRepository;
         private readonly IDocumentRepository _documentRepository;
-        private readonly ILeaseRepository _leaseRepository;
         private readonly IMapper mapper;
 
         public DocumentFileService(
@@ -36,8 +35,7 @@ namespace Pims.Api.Services
             IDocumentService documentService,
             IMapper mapper,
             IProjectRepository projectRepository,
-            IDocumentRepository documentRepository,
-            ILeaseRepository leaseRepository)
+            IDocumentRepository documentRepository)
             : base(user, logger)
         {
             this.acquisitionFileDocumentRepository = acquisitionFileDocumentRepository;
@@ -46,7 +44,6 @@ namespace Pims.Api.Services
             this.mapper = mapper;
             _projectRepository = projectRepository;
             _documentRepository = documentRepository;
-            _leaseRepository = leaseRepository;
         }
 
         public IList<T> GetFileDocuments<T>(FileType fileType, long fileId)
@@ -66,9 +63,6 @@ namespace Pims.Api.Services
                 case FileType.Project:
                     this.User.ThrowIfNotAuthorized(Permissions.ProjectView);
                     return _projectRepository.GetAllProjectDocuments(fileId).Select(f => f as T).ToArray();
-                case FileType.Lease:
-                    this.User.ThrowIfNotAuthorized(Permissions.LeaseView);
-                    return _leaseRepository.GetAllLeaseDocuments(fileId).Select(f => f as T).ToArray();
                 default:
                     throw new BadRequestException("FileT type not valid to get documents.");
             }
@@ -134,7 +128,7 @@ namespace Pims.Api.Services
 
         public async Task<DocumentUploadRelationshipResponse> UploadProjectDocumentAsync(long projectId, DocumentUploadRequest uploadRequest)
         {
-            this.Logger.LogInformation("Uploading document for single Project");
+            this.Logger.LogInformation("Uploading document for single project");
             this.User.ThrowIfNotAuthorized(Permissions.DocumentAdd, Permissions.ProjectEdit);
 
             DocumentUploadResponse uploadResult = await documentService.UploadDocumentAsync(uploadRequest);
@@ -155,34 +149,6 @@ namespace Pims.Api.Services
                 _projectRepository.CommitTransaction();
 
                 relationshipResponse.DocumentRelationship = mapper.Map<DocumentRelationshipModel>(newProjectDocument);
-            }
-
-            return relationshipResponse;
-        }
-
-        public async Task<DocumentUploadRelationshipResponse> UploadLeaseDocumentAsync(long leaseId, DocumentUploadRequest uploadRequest)
-        {
-            this.Logger.LogInformation("Uploading document for single Lease");
-            this.User.ThrowIfNotAuthorized(Permissions.DocumentAdd, Permissions.LeaseEdit);
-
-            DocumentUploadResponse uploadResult = await documentService.UploadDocumentAsync(uploadRequest);
-
-            DocumentUploadRelationshipResponse relationshipResponse = new()
-            {
-                UploadResponse = uploadResult,
-            };
-
-            if (uploadResult.Document.Id != 0)
-            {
-                PimsLeaseDocument newDocument = new()
-                {
-                    LeaseId = leaseId,
-                    DocumentId = uploadResult.Document.Id,
-                };
-                newDocument = _leaseRepository.AddLeaseDocument(newDocument);
-                _leaseRepository.CommitTransaction();
-
-                relationshipResponse.DocumentRelationship = mapper.Map<DocumentRelationshipModel>(newDocument);
             }
 
             return relationshipResponse;
@@ -238,24 +204,6 @@ namespace Pims.Api.Services
             {
                 acquisitionFileDocumentRepository.DeleteAcquisition(acquisitionFileDocument);
                 acquisitionFileDocumentRepository.CommitTransaction();
-                return new ExternalResult<string>() { Status = ExternalResultStatus.NotExecuted };
-            }
-        }
-
-        public async Task<ExternalResult<string>> DeleteLeaseDocumentAsync(PimsLeaseDocument leaseDocument)
-        {
-            this.Logger.LogInformation("Deleting PIMS document for single lease");
-            this.User.ThrowIfNotAuthorized(Permissions.DocumentDelete);
-
-            var relationshipCount = _documentRepository.DocumentRelationshipCount(leaseDocument.DocumentId);
-            if (relationshipCount == 1)
-            {
-                return await documentService.DeleteDocumentAsync(leaseDocument.Document);
-            }
-            else
-            {
-                _leaseRepository.DeleteLeaseDocument(leaseDocument.LeaseDocumentId);
-                _leaseRepository.CommitTransaction();
                 return new ExternalResult<string>() { Status = ExternalResultStatus.NotExecuted };
             }
         }
